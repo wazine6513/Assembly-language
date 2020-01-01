@@ -1,0 +1,472 @@
+LIST P=18F4520					
+#include <P18F4520.INC>
+		CONFIG OSC = XT
+		CONFIG WDT = OFF
+		CONFIG LVP = OFF
+
+		CBLOCK 0x050
+		DELAY_H
+		DELAY_L
+		Input
+		led0;
+		led1
+		led2
+		led3
+		counter	
+		counter2
+		timer0_loop_for
+		timer0_loop_for2
+		mode
+		timer_up_down
+		pause_input
+		ENDC
+
+		ORG 0x0000
+		GOTO Main
+
+		ORG 0x0008
+		BTFSC INTCON,TMR0IF
+		CALL TIMER_ISR
+		BTFSC INTCON,INT0IF
+		CALL button1_ISR
+		BTFSC INTCON3,INT1IF
+		CALL button2_ISR
+		RETFIE
+
+
+
+
+
+Main 	ORG 0x0100
+
+
+		CLRF TRISC
+		CALL init_timer0
+
+		BCF INTCON, INT0IF
+		BSF INTCON, INT0IE
+		BCF INTCON2, INTEDG0
+
+		BCF INTCON3, INT1IF
+		BSF INTCON3, INT1IE
+		BCF INTCON2, INTEDG1
+
+		BSF INTCON, GIE 
+
+		MOVLW 0x0F       
+		MOVWF ADCON1
+		SETF TRISB
+		CLRF TRISD
+		CLRF PORTD
+		CLRF PORTC
+		CLRF TRISE
+		CLRF PORTE
+
+		MOVLW 0xFF
+		MOVWF pause_input
+		MOVLW 0xFF
+		MOVWF timer_up_down  
+		MOVLW 0x00
+		MOVWF mode
+		CALL reset_all
+		GOTO Count_up_Loop_display
+
+init_timer0:
+		MOVLW 0x44
+		MOVWF T0CON
+		MOVLW d'62'
+		MOVWF TMR0
+		MOVLW 0xA0
+		MOVWF INTCON
+		MOVLW d'125'
+		MOVWF timer0_loop_for2
+		MOVLW 0x00
+		MOVWF timer0_loop_for
+		RETURN
+
+change_1second
+		MOVLW 0x00
+		MOVWF timer0_loop_for
+		CPFSEQ timer_up_down, W
+		CALL check_digit0 
+		MOVLW 0xFF
+		CPFSEQ timer_up_down, W	
+		CALL check_digit0_down
+		RETURN
+
+REINIT
+		MOVLW d'2'
+		MOVWF TMR0
+		BCF INTCON, TMR0IF
+		RETURN 
+
+TIMER_ISR:
+		INCF timer0_loop_for
+		MOVFF timer0_loop_for2, WREG
+		SUBWF timer0_loop_for, W
+		BZ change_1second
+		CALL REINIT
+		RETURN
+
+reset_all:
+		MOVLW 0xFF
+		MOVWF pause_input
+		MOVLW 0x00
+		MOVWF led0
+		MOVWF led1
+		MOVWF led2
+		MOVWF led3
+		RETURN
+
+button1_ISR:
+		MOVLW 0xFF
+		XORWF pause_input
+		BTG T0CON, 7 
+		BCF INTCON, INT0IF
+		RETURN
+
+button2_ISR:
+		MOVLW 0xFF ;---- DOWN mode
+		XORWF timer_up_down ;---- UP mode	
+		TSTFSZ  timer_up_down
+		BRA     Count_UP
+		MOVLW   0x03
+		MOVWF   PORTC
+		MOVLW   b'01011110'
+		MOVWF   PORTD  ; --------- Display “D”
+    		CALL    Sound_Delay
+    		CALL    Sound_Delay
+    		CALL    Sound_Delay
+    		CALL    Sound_Delay
+		BRA     Finish	
+
+Count_UP
+		MOVLW   0x03
+		MOVWF   PORTC
+		MOVLW   b'00111110'
+		MOVWF   PORTD  ; ----------- Display “U”
+		MOVLW   0x04
+		MOVWF   counter2
+CoutU		CALL    Sound_Delay
+    		DECF	counter2
+		BNZ		CoutU
+		BRA		Finish
+
+Finish	
+		BCF INTCON3, INT1IF
+		RETURN
+
+Switch_Timer_Mode:
+		CALL reset_all
+		MOVLW b'01000100' 
+		MOVWF T0CON 
+		BRA Count_up_Loop_display   
+
+Count_up_Loop_display:
+		MOVLW 0xFF
+		CPFSLT mode, W
+;------------------------------------led3
+		Clrf PORTD
+   		MOVLW 0x00
+		MOVWF PORTC 
+		MOVFF led3, Input
+		CALL bcd_7seg
+		MOVWF PORTD
+		CALL Delay		
+;-----------------------------------led2
+		Clrf PORTD
+    		MOVLW 0x01
+		MOVWF PORTC
+		MOVFF led2, Input
+		CALL bcd_7seg
+		MOVWF PORTD
+		CALL Delay
+; -----------------------------------led1
+		Clrf PORTD
+		MOVLW 0x02
+		MOVWF PORTC
+		MOVFF led1, Input
+		CALL bcd_7seg
+		MOVWF PORTD
+		CALL Delay
+		Clrf PORTD
+; -----------------------------------led0
+		MOVLW 0x03
+		MOVWF PORTC
+		MOVFF led0, Input
+		CALL bcd_7seg
+		MOVWF PORTD
+		CALL Delay
+
+		MOVLW 0x00
+		CPFSEQ pause_input,W     
+		GOTO wait_button_press
+		GOTO Count_up_Loop_display
+;--------------------------------------------------------------
+
+wait_button_press: 
+		MOVF  PORTB, W
+		XORLW 0xFF
+		BNZ   P5
+		GOTO  RET
+
+P5		BTFSC PORTB,4
+		BRA   P6
+		CALL  check_digit3
+		CALL  Sound_Delay    
+		GOTO  RET      
+P6		BTFSC PORTB,5
+		BRA   P7
+		CALL  check_digit2
+		CALL  Sound_Delay   
+		GOTO  RET  
+P7		BTFSC PORTB,6
+		BRA   P8
+		CALL  check_digit1
+		CALL  Sound_Delay   
+		GOTO  RET      
+P8		BTFSC PORTB,7
+		BRA   P4
+		CALL  check_digit0
+		CALL  Sound_Delay   
+		GOTO  RET
+P4		BTFSC PORTB,3
+		GOTO  RET               
+		CALL  reset_all
+RET		GOTO  Count_up_Loop_display           
+
+;---------------------Count--------------------------
+check_digit0:
+		MOVLW d'9'
+		CPFSLT led0, W
+		BRA digit0_not_less_than_9
+		BRA digit0_less_than_9
+
+digit0_not_less_than_9:	
+    		MOVLW 0xFF
+		CPFSEQ pause_input,W   
+		CALL check_digit1
+		CALL set_digit0_zero
+		RETURN
+
+digit0_less_than_9:	
+		INCF led0
+		RETURN
+
+set_digit0_zero:
+		MOVLW d'0'
+		MOVWF led0
+		RETURN 
+
+check_digit1:
+		MOVLW d'5'
+		CPFSLT led1, W
+		BRA digit1_not_less_than_5
+		BRA digit1_less_than_5
+
+digit1_not_less_than_5:	
+		MOVLW 0xFF
+		CPFSEQ pause_input,W   
+		CALL check_digit2
+		CALL set_digit1_zero
+		RETURN
+
+digit1_less_than_5:	
+		INCF led1
+		RETURN
+
+set_digit1_zero:
+		MOVLW d'0'
+		MOVWF led1
+		RETURN 
+;-------------Check carry of digit2-----------------
+check_digit2:
+		MOVLW d'9'
+		CPFSLT led2, W
+		BRA digit2_not_less_than_9
+		BRA digit2_less_than_9
+
+digit2_not_less_than_9:	
+    		MOVLW 0xFF
+		CPFSEQ pause_input,W   
+		CALL check_digit3
+		CALL set_digit2_zero
+		RETURN
+
+digit2_less_than_9:	
+		INCF led2
+		RETURN
+
+set_digit2_zero:
+		MOVLW d'0'
+		MOVWF led2
+		RETURN 
+;-------------Check carry of digit3-----------------
+check_digit3:
+		MOVLW d'9'
+		CPFSLT led3, W
+		BRA digit3_not_less_than_9
+		BRA digit3_less_than_9
+
+digit3_not_less_than_9:	
+		CALL check_carry_4digit
+		CALL set_digit3_zero
+		RETURN
+
+digit3_less_than_9:
+		INCF led3
+		RETURN
+
+set_digit3_zero:
+		MOVLW d'0'
+		MOVWF led3
+		RETURN
+;-------------Check carry of digit4-----------------
+check_carry_4digit:
+		MOVLW d'9'
+		CPFSEQ led0, W
+		RETURN
+		CPFSEQ led2, W
+		RETURN
+		MOVLW d'5'
+		CPFSEQ led1, W
+		RETURN
+		CALL reset_all
+		RETURN
+
+; -------------------- Count Down -------------------------
+check_digit0_down:
+		MOVLW d'0'
+		CPFSGT led0, W ;
+		BRA digit0_is_0
+		BRA digit0_not_0
+
+digit0_not_0:	
+		DECF led0
+		RETURN
+
+digit0_is_0:	
+		CALL check_digit1_down
+		MOVLW d'9'
+		MOVWF led0
+		RETURN
+; --------------------Digit 1 down ------------------------
+check_digit1_down:
+		MOVLW d'0'
+		CPFSGT led1, W
+		BRA digit1_is_0
+		BRA digit1_not_0
+
+digit1_not_0:	
+		DECF led1
+		RETURN
+
+digit1_is_0:	
+		CALL check_digit2_down
+		MOVLW d'5'
+		MOVWF led1
+		RETURN
+; --------------------Digit 2 down ------------------------
+check_digit2_down:
+		MOVLW d'0'
+		CPFSGT led2, W
+		BRA digit2_is_0
+		BRA digit2_not_0
+
+digit2_not_0:	
+		DECF led2
+		RETURN
+
+digit2_is_0:    CALL check_digit3_down
+            	MOVLW d'9'
+              	MOVWF led2
+	            RETURN
+; --------------------Digit 3 down ------------------------
+check_digit3_down:
+	            MOVLW   d'0'
+	            CPFSGT  led3, W
+	            BRA     digit3_is_0
+	            BRA     digit3_not_0
+
+digit3_not_0:	DECF    led3
+             	RETURN
+
+digit3_is_0:    CALL    check_overflow_4digit
+	            MOVLW   d'9'
+	            MOVWF   led3
+	            RETURN
+
+check_overflow_4digit:
+	            MOVLW   d'0'
+	            CPFSEQ  led0, W
+	            RETURN
+	            CPFSEQ  led2, W
+	            RETURN
+	            CPFSEQ  led1, W
+	            RETURN
+	            CALL    time_up
+	            RETURN
+time_up:	   
+		MOVLW 	0x05
+		MOVWF	counter
+		BSF		PORTE,0
+         		HERE   CALL    Sound_Delay
+	       	BTG     PORTE, 0
+		DECF	counter
+		BNZ		HERE 
+		MOVLW	0x02
+		MOVWF	counter
+         HERE2  CALL    Sound_Delay
+	        	BTG     T0CON, 7 
+                	CALL    Sound_Delay
+                	BTG     PORTE, 0
+		DECF	counter
+		BNZ		HERE2
+                	CALL    Sound_Delay
+	        	BTG     T0CON, 7
+	         	CALL    reset_all
+		BCF		PORTE,0
+	         	RETURN
+
+;----------------------------------------------------------
+bcd_7seg:       MOVLW   low bcd_table
+             	MOVWF   TBLPTRL
+            	MOVLW   high bcd_table
+            	MOVWF   TBLPTRH
+               	MOVLW   upper bcd_table
+               	MOVWF   TBLPTRU
+               	MOVF    Input, W
+            	ADDWF   TBLPTRL, F
+             	MOVLW   0
+		ADDWFC  TBLPTRH
+              	ADDWFC  TBLPTRU
+             	TBLRD* 
+               	MOVF    TABLAT, W
+            	RETURN
+bcd_table
+	db 0x3F,0x06,0x5B,0x4F,0x66,0x6D,0x7D,0x07,0x7F,0x6F
+
+; --------------------------------------------------------------
+; Short Delay to display all 4 digits at the same time
+Delay:	   	MOVLW	0x03          
+	            MOVWF	DELAY_H
+
+LOP_1:       	MOVLW	0xFF
+             	MOVWF	DELAY_L
+LOP_2:           DECF	DELAY_L, F
+             	BNZ	    LOP_2
+             	DECF	DELAY_H, F
+             	BNZ	    LOP_1 
+	            RETURN 
+
+;-------------- Generate 1 second sound Delay-------------------
+Sound_Delay:	MOVLW	0xFF
+                	MOVWF	DELAY_H
+Sound_LOP_1:MOVLW	0xFF
+              	     MOVWF	DELAY_L
+Sound_LOP_2:    DECF	DELAY_L, F
+               	     BNZ	Sound_LOP_2
+                	     DECF	DELAY_H, F
+                	     BNZ 	Sound_LOP_1 
+               	    RETURN
+END
